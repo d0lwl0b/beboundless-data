@@ -13,3 +13,4 @@ snapshot/
 output/
 cache/
 *.db
+test.toml
