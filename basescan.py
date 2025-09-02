@@ -44,15 +44,17 @@ from scipy.stats import trim_mean, median_abs_deviation, iqr
 from botasaurus.request import request, Request, NotFoundException
 
 @request(cache=False, max_retry=10, retry_wait=1, raise_exception=True, create_error_logs=True)
-def fetch_latest_gas_price(request: Request, address: str) -> tuple[int | None, int | None, int | None, float]:
+def fetch_latest_gas_price(request: Request, address: str, offset: int = 300) -> tuple[int | None, int | None, int | None, float]:
     """
     Returns (low_mean, mid_mean, high_mean, change_rate)
     - low_mean: mean of lowest 10%
     - mid_mean: mean of middle 80%
     - high_mean: mean of highest 10%
     - change_rate: normalized MAD / mid_mean
+    - offset: number of transactions to fetch (default 300, max 5000)
     """
     sleep(random.uniform(0.1, 0.3))  # To avoid rate limiting
+    offset = min(max(100, offset), 5000)
     url = (
         "https://api.etherscan.io/v2/api"
         f"?chainid=8453"
@@ -60,7 +62,7 @@ def fetch_latest_gas_price(request: Request, address: str) -> tuple[int | None, 
         f"&action=txlist"
         f"&address={address}"
         f"&page=1"
-        f"&offset=3000"
+        f"&offset={offset}"
         f"&sort=desc"
         f"&apikey={ETHERSCAN_API_KEY}"
     )
@@ -119,16 +121,17 @@ def update_toml_price(toml_path, price):
         f.write(dumps(doc))
     LogPrint.info(f"Updated {toml_path} [flashblocks].initial_max_priority_fee_per_gas_wei = {int(price)}")
 
-def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.20, max_gas=int(3e9)):
+def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.20, max_gas=int(3e9), offset=300):
     """
     Main monitoring loop. Dynamically adjusts gas price using adaptive factor and max_gas.
     If price exceeds max_gas, enters cooldown period with minimum gas.
+    offset: number of transactions to fetch (default 300, max 5000)
     """
     min_gas = int(1e9)  # Minimum gas price during cooldown
     while True:
         with Session(engine) as session:
             try:
-                results = fetch_latest_gas_price(MONITOR_ADDRESSES)
+                results = [fetch_latest_gas_price(request, address, offset=offset) for address in MONITOR_ADDRESSES]
             except Exception as e:
                 LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
                 results = [(None, None, None, 0.0)] * len(MONITOR_ADDRESSES)
@@ -162,6 +165,7 @@ if __name__ == "__main__":
     parser.add_argument("--min-factor", type=float, default=1.05, help="Minimum factor for price adjustment")
     parser.add_argument("--max-factor", type=float, default=1.20, help="Maximum factor for price adjustment")
     parser.add_argument("-x", "--max-gas", type=int, default=int(3e9), help="Maximum allowed gas price")
+    parser.add_argument("-o", "--offset", type=int, default=300, help="Number of transactions to fetch (default 300, max 5000)")
     args = parser.parse_args()
     main(
         loop=args.loop,
@@ -169,5 +173,6 @@ if __name__ == "__main__":
         toml_path=args.toml_path,
         min_factor=args.min_factor,
         max_factor=args.max_factor,
-        max_gas=args.max_gas
+        max_gas=args.max_gas,
+        offset=args.offset
     )
