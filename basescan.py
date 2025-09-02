@@ -131,7 +131,7 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
     while True:
         with Session(engine) as session:
             try:
-                results = [fetch_latest_gas_price(request, address, offset=offset) for address in MONITOR_ADDRESSES]
+                results = fetch_latest_gas_price(MONITOR_ADDRESSES, offset=offset)
             except Exception as e:
                 LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
                 results = [(None, None, None, 0.0)] * len(MONITOR_ADDRESSES)
