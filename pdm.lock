@@ -5,7 +5,7 @@
 groups = ["default"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:bbf3612721a179c58cef004009d2d156b2938b11cacc2e900e7b880063040845"
+content_hash = "sha256:0c719dcf35db2caf6f370d74a63993768335784542330014c4506f19cf075c53"
 
 [[metadata.targets]]
 requires_python = "==3.13.*"
@@ -1401,6 +1401,16 @@ groups = ["default"]
 files = [
     {file = "nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c"},
     {file = "nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe"},
+]
+
+[[package]]
+name = "noise"
+version = "1.2.2"
+summary = "Perlin noise for Python"
+groups = ["default"]
+files = [
+    {file = "noise-1.2.2.tar.gz", hash = "sha256:57a2797436574391ff63a111e852e53a4164ecd81ad23639641743cd1a209b65"},
+    {file = "noise-1.2.2.zip", hash = "sha256:36036cdaca131ddd2ab4397fba649af7f074ec08031e1e0a51031d0ae23b509a"},
 ]
 
 [[package]]

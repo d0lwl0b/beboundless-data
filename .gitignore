@@ -12,5 +12,7 @@ error_logs/
 snapshot/
 output/
 cache/
+logs/
 *.db
 test.toml
+basescan.supervisord.conf

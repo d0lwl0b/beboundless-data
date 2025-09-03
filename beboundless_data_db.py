@@ -178,7 +178,7 @@ _ORDER_LINK = Template("https://explorer.beboundless.xyz/orders/${order_id}?tab=
 @browser(block_images=True, window_size=(1280, 720))
 def scrape_requestors(driver: Driver, data):
     driver.get(_REQUESTORS_LINK)
-    driver.wait_for_element("table")
+    driver.wait_for_element("table", wait=Wait.LONG)
     soup = soupify(driver)
     table = soup.select_one("table")
     rows = table.select("tbody tr") if table else []
@@ -258,8 +258,8 @@ def scrape_lock_info(request: Request, txhash: str):
     with _request_lock:
         current_time = time.time()
         time_since_last = current_time - _last_request_time
-        if time_since_last < 0.5:
-            time.sleep(0.5 - time_since_last)
+        if time_since_last < 0.3:
+            time.sleep(0.3 - time_since_last)
         _last_request_time = time.time()
 
     hex_to_eth = lambda hex_str: int(hex_str, 16) / 1e18
