@@ -24,20 +24,6 @@ class LogPrint():
     def error(msg):
         print(f"[ERROR]::{msg}")
 
-# Database
-from sqlmodel import SQLModel, Field, Session, create_engine, select
-
-DB_NAME = "address_gas_monitor.db"
-
-class AddressGas(SQLModel, table=True):
-    address: str = Field(primary_key=True)
-    gas_price: float
-
-engine = create_engine(f"sqlite:///{DB_NAME}")
-
-if not Path(DB_NAME).exists():
-    SQLModel.metadata.create_all(engine)
-
 # Request
 from statistics import mean
 from scipy.stats import trim_mean, median_abs_deviation, iqr
@@ -94,21 +80,38 @@ def fetch_latest_gas_price(request: Request, address: str, offset: int = 300) ->
         return low_mean, mid_mean, high_mean, change_rate
     return None, None, None, 0.0
 
-def upsert_address_gas(session: Session, address: str, gas_price: float):
-    obj = session.get(AddressGas, address)
-    if obj:
-        obj.gas_price = gas_price
-        session.add(obj)
-    else:
-        obj = AddressGas(address=address, gas_price=gas_price)
-        session.add(obj)
-    session.commit()
-
 
 # Main
 import math
 from tomlkit import parse, dumps
 import argparse
+import numpy as np  # For anti-normal sampling
+
+# Anti-normal sampling: dense at edges, sparse in middle
+def anti_normal_sample(
+    min_gas: int,
+    max_gas: int,
+    edge_width_frac: float = 0.22,
+    sigma_frac: float = 0.05,
+    choose_low_prob: float = 0.5,
+    max_tries: int = 32,
+) -> int:
+    R = max_gas - min_gas
+    if R <= 0:
+        return int(min_gas)
+    w = float(np.clip(edge_width_frac, 1e-6, 0.49))
+    sigma = max(1e-9, sigma_frac * R)
+    low_lo, low_hi = min_gas, min_gas + w * R
+    high_lo, high_hi = max_gas - w * R, max_gas
+    if np.random.rand() < choose_low_prob:
+        mu, lo, hi = (low_lo + low_hi) / 2.0, low_lo, low_hi
+    else:
+        mu, lo, hi = (high_lo + high_hi) / 2.0, high_lo, high_hi
+    for _ in range(max_tries):
+        v = np.random.normal(mu, sigma)
+        if lo <= v <= hi:
+            return int(round(v))
+    return int(round(mu))
 
 def update_toml_price(toml_path, price):
     with open(toml_path, "r", encoding="utf-8") as f:
@@ -129,30 +132,41 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
     """
     min_gas = int(1e9)  # Minimum gas price during cooldown
     while True:
-        with Session(engine) as session:
-            try:
-                results = fetch_latest_gas_price(MONITOR_ADDRESSES, offset=offset)
-            except Exception as e:
-                LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
-                results = [(None, None, None, 0.0)] * len(MONITOR_ADDRESSES)
-            valid_prices = []
-            for address, (low_mean, mid_mean, high_mean, change_rate) in zip(MONITOR_ADDRESSES, results):
-                factor = min_factor + (max_factor - min_factor) * change_rate
-                factor = max(factor, 1.0)
-                LogPrint.info(
-                    f"{address} low_mean={low_mean} mid_mean={mid_mean} high_mean={high_mean} change_rate={change_rate:.3f} factor={factor:.3f}"
+        try:
+            results = fetch_latest_gas_price(MONITOR_ADDRESSES, offset=offset)
+        except Exception as e:
+            LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
+            results = [(None, None, None, 0.0)] * len(MONITOR_ADDRESSES)
+        valid_prices = []
+        for address, (low_mean, mid_mean, high_mean, change_rate) in zip(MONITOR_ADDRESSES, results):
+            factor = min_factor + (max_factor - min_factor) * change_rate
+            factor = max(factor, 1.0)
+            LogPrint.info(
+                f"{address} low_mean={low_mean} mid_mean={mid_mean} high_mean={high_mean} change_rate={change_rate:.3f} factor={factor:.3f}"
+            )
+            if mid_mean is not None:
+                # Use anti-normal sampling between low_mean and high_mean
+                min_sample = int(low_mean if low_mean is not None else mid_mean * 0.9)
+                max_sample = int(high_mean if high_mean is not None else mid_mean * 1.1)
+                sampled_price = anti_normal_sample(
+                    min_gas=min_sample,
+                    max_gas=max_sample,
+                    edge_width_frac=0.22,
+                    sigma_frac=0.05,
+                    choose_low_prob=0.5,
                 )
-                if mid_mean is not None:
-                    dynamic_price = int(mid_mean * factor)
-                    if dynamic_price > max_gas:
-                        update_toml_price(toml_path, low_mean if low_mean else min_gas)
-                        LogPrint.info(f"Cooldown: price {dynamic_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
-                    else:
-                        update_toml_price(toml_path, dynamic_price)
-                        LogPrint.info(f"Set price: {dynamic_price} (factor={factor:.3f}, max_gas={max_gas})")
-                    valid_prices.append(dynamic_price)
+                LogPrint.info(
+                    f"Anti-normal sample: [{min_sample}, {max_sample}], price={sampled_price}"
+                )
+                if sampled_price > max_gas:
+                    update_toml_price(toml_path, low_mean if low_mean else min_gas)
+                    LogPrint.info(f"Cooldown: price {sampled_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
                 else:
-                    LogPrint.error(f"Failed to fetch gas price for {address}")
+                    update_toml_price(toml_path, sampled_price)
+                    LogPrint.info(f"Set price: {sampled_price} (anti-normal, max_gas={max_gas})")
+                valid_prices.append(sampled_price)
+            else:
+                LogPrint.error(f"Failed to fetch gas price for {address}")
         if not loop:
             break
         sleep(interval)
