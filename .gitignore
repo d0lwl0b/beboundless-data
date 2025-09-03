@@ -6,6 +6,7 @@ __pycache__/
 .pdm-python
 
 .env
+.venv/
 beboundless_cache/
 requestors_cache/
 error_logs/
@@ -16,3 +17,4 @@ logs/
 *.db
 test.toml
 basescan.supervisord.conf
+gas_noise.supervisord.conf
