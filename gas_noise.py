@@ -73,7 +73,7 @@ def generate_gas_sequence(
     history = []
     algo_flag = 0  # 0: perlin, 1: gaussian
     perlin_seed = rng.uniform(0, 1000)
-    perlin_step = 0.1
+    perlin_step = 0.3
     prices = []
     times = []
     t0 = time.time()
@@ -83,13 +83,13 @@ def generate_gas_sequence(
             price = perlin_noise_value(perlin_seed, min_gas, max_gas)
             perlin_seed += perlin_step
             if verbose:
-                print(f"perlin {price}")
+                LogPrint.info(f"perlin {price}")
         else:
             mean = (min_gas + max_gas) / 2
             std = (max_gas - min_gas) / 6 if max_gas > min_gas else 1
             price = gaussian_noise_value(rng, mean, std, min_gas, max_gas)
             if verbose:
-                print(f"gauss {price}")
+                LogPrint.info(f"gauss {price}")
         if write_toml and toml_path:
             update_toml_price(toml_path, price)
         history.append(price)
@@ -101,7 +101,7 @@ def generate_gas_sequence(
             algo_flag = 1 - algo_flag
         sleep_time = rng.uniform(interval_min, interval_max)
         if verbose:
-            print(f"sleep {sleep_time:.2f}")
+            LogPrint.info(f"sleep {sleep_time:.2f}")
         time.sleep(sleep_time)
     return prices, times
 
