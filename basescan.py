@@ -158,7 +158,7 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
                 LogPrint.info(
                     f"Anti-normal sample: [{min_sample}, {max_sample}], price={sampled_price}"
                 )
-                if sampled_price > max_gas:
+                if sampled_price > max_gas or sampled_price < mid_mean:
                     min_gas = low_mean if low_mean else min_gas
                     update_toml_price(toml_path, int(min_gas // factor))
                     LogPrint.info(f"Cooldown: price {sampled_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
