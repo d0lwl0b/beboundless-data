@@ -19,7 +19,8 @@ class LogPrint():
         print(f"[ERROR]::{msg}")
 
 # Request
-from dataclasses import dataclass, field
+import pandas as pd
+from dataclasses import dataclass, asdict
 
 from statistics import mean
 from scipy.stats import trim_mean, median_abs_deviation, iqr
@@ -39,22 +40,15 @@ MONITOR_ADDRESSES = [
 
 @request(cache=False, max_retry=10, retry_wait=1, raise_exception=True, create_error_logs=True)
 def fetch_latest_gas_price(request: Request, params: TxListRequest) -> tuple[int | None, int | None, int | None, float]:
-    """
-    Returns (low_mean, mid_mean, high_mean, change_rate)
-    - low_mean: mean of lowest 10%
-    - mid_mean: mean of middle 80%
-    - high_mean: mean of highest 10%
-    - change_rate: normalized MAD / mid_mean
-    - offset: number of transactions to fetch (default 300, max 5000)
-    """
     sleep(random.uniform(0.1, 0.3))  # To avoid rate limiting
-    offset = min(max(100, params.offset), 5000)
+    address = params.address
+    offset = min(max(10, params.offset), 5000)
     url = (
         "https://api.etherscan.io/v2/api"
         f"?chainid=8453"
         f"&module=account"
         f"&action=txlist"
-        f"&address={params.address}"
+        f"&address={address}"
         f"&page=1"
         f"&offset={offset}"
         f"&sort=desc"
@@ -62,36 +56,121 @@ def fetch_latest_gas_price(request: Request, params: TxListRequest) -> tuple[int
     )
     response = request.get(url)
     if response.status_code == 404:
-        raise NotFoundException(params.address)
+        raise NotFoundException(address)
     response.raise_for_status()
     data = response.json()
     if data.get("status") == "1" and data.get("result"):
-        txs = [tx for tx in data["result"] if tx.get("methodId") == "0xb4206dd2"]
-        gas_prices = sorted([int(tx.get("gasPrice", "0")) for tx in txs if tx.get("gasPrice")])
-        n = len(gas_prices)
-        if n == 0:
-            return None, None, None, 0.0
-        low_count  = max(1, int(n * 0.1))
-        high_count = max(1, int(n * 0.1))
-        mid_count  = n - low_count - high_count
+        result_gen = (
+            {
+                "is_error": bool(int(tx.get("isError"))),
+                "time_stamp": int(tx.get("timeStamp")),
+                "gas_prices": int(tx.get("gasPrice"))
+            } 
+            for tx in data["result"]
+            if tx.get("methodId") == "0xb4206dd2" and tx.get("isError") and tx.get("gasPrice") and tx.get("timeStamp")
+        )
 
-        low_slice  = gas_prices[:low_count]
-        mid_slice  = gas_prices[low_count:n-high_count] if mid_count > 0 else []
-        high_slice = gas_prices[n-high_count:]
+        result = []
+        error_count = 0
+        for item in result_gen:
+            result.append(item)
+            if item["is_error"]:
+                error_count += 1
 
-        low_mean  = int(mean(low_slice))  if low_slice  else None
-        mid_mean  = int(mean(mid_slice))  if mid_slice  else None
-        high_mean = int(mean(high_slice)) if high_slice else None
+        result_length = len(result)
+        error_rate = error_count / result_length if result_length else 0
 
-        mad = median_abs_deviation(mid_slice, scale=1.0) if mid_slice else 0.0
-        change_rate = float(min(1.0, mad / mid_mean)) if mid_mean else 0.0
-        return low_mean, mid_mean, high_mean, change_rate
-    return None, None, None, 0.0
+        LogPrint.info(f"[{address}] [tx: {result_length / offset :.2%}] [error: {error_rate:.2%}] ({error_count} | {result_length} | {offset})")
 
+        return result
+    return result
+
+
+# Analysis
+from enum import Enum
+import numpy as np
+
+class GasQuantile(Enum):
+    LOW = 'low'
+    MID = 'mid'
+    HIGH = 'high'
+
+class ExecMode(Enum):
+    UP = 'up'
+    RANDOM = 'random'
+
+@dataclass
+class BaseStats:
+    min: float
+    max: float
+    mean: float
+
+@dataclass
+class AnalyzeStats:
+    low: BaseStats
+    mid: BaseStats
+    high: BaseStats
+    s_time: int
+    e_time: int
+    latest3: pd.DataFrame
+    latest3_tags: list[GasQuantile]
+
+def anti_normal_gas_iter(min_gas, max_gas, n_samples, edge_width=0.13, mid_gas=None):
+    time_points = np.linspace(0, 100, n_samples)
+    uniform_samples = np.random.uniform(-1, 1, n_samples)
+    transformed_samples = np.sign(uniform_samples) * (1 - np.power(1 - np.abs(uniform_samples), 1/edge_width))
+    if mid_gas is None:
+        mid_gas = (min_gas + max_gas) / 2
+    half_range = (max_gas - min_gas) / 2
+    for t, s in zip(time_points, transformed_samples):
+        yield t, mid_gas + s * half_range
+
+def quantile_to_tuple(q):
+    return (q == GasQuantile.LOW, q == GasQuantile.MID, q == GasQuantile.HIGH)
+
+def tuple_to_bitmask(t):
+    # low=1, mid=2, high=4
+    return t[0]*1 + t[1]*2 + t[2]*4
+
+def analyze_gas_prices(data):
+    if isinstance(data, pd.DataFrame):
+        df = data.copy()
+    else:
+        df = pd.DataFrame(data)
+
+    # Sort by gas_prices
+    df_gas_sorted = df.sort_values('gas_prices')
+    df_time_sorted = df.sort_values('time_stamp', ascending=False)
+
+    # Segment into 3 quantile bins: 0-20%, 20-80%, 80-100%
+    df_gas_sorted['quantile'] = pd.qcut(df_gas_sorted['gas_prices'], q=[0, 0.2, 0.8, 1.0], labels=[GasQuantile.LOW, GasQuantile.MID, GasQuantile.HIGH])
+    stats = {}
+    for label, key in [(GasQuantile.LOW, 'low'), (GasQuantile.MID, 'mid'), (GasQuantile.HIGH, 'high')]:
+        segment = df_gas_sorted[df_gas_sorted['quantile'] == label]['gas_prices']
+        stats[key] = BaseStats(
+            min=segment.min(),
+            max=segment.max(),
+            mean=segment.mean()
+        )
+
+    def get_quantile(price):
+        row = df_gas_sorted[df_gas_sorted['gas_prices'] == price]
+        return row['quantile'].iloc[0] if not row.empty else None
+
+    # time analysis
+    s_time = int(df_time_sorted['time_stamp'].iloc[-1])  # least time
+    e_time = int(df_time_sorted['time_stamp'].iloc[0])   # latest time
+
+    latest3 = df_time_sorted.head(3)
+    latest_gas_prices = latest3['gas_prices'].values
+    latest_quantiles = [get_quantile(p) for p in latest_gas_prices]
+
+    return AnalyzeStats(**stats, s_time=s_time, e_time=e_time, latest3=latest3, latest3_tags=latest_quantiles)
 
 # Main
-from tomlkit import parse, dumps
 import argparse
+from collections import deque
+from tomlkit import parse, dumps
 
 def update_toml_price(toml_path, price):
     with open(toml_path, "r", encoding="utf-8") as f:
@@ -102,50 +181,130 @@ def update_toml_price(toml_path, price):
     doc["flashblocks"]["initial_max_priority_fee_per_gas_wei"] = int(price)
     with open(toml_path, "w", encoding="utf-8") as f:
         f.write(dumps(doc))
-    LogPrint.info(f"Updated {toml_path} [flashblocks].initial_max_priority_fee_per_gas_wei = {int(price)}")
+    LogPrint.info(f">> updated [{int(price) / 1e9}] [{int(price)}] {toml_path} [flashblocks].initial_max_priority_fee_per_gas_wei")
 
-def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.20, max_gas=int(3e9), offset=300):
-    """
-    Main monitoring loop. Dynamically adjusts gas price using adaptive factor and max_gas.
-    If price exceeds max_gas, enters cooldown period with minimum gas.
-    offset: number of transactions to fetch (default 300, max 5000)
-    """
-    min_gas = int(1e9)  # Minimum gas price during cooldown
+def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9), offset=300):
+    mode = ExecMode.UP
+    area_data = {}
+    mine_area = GasQuantile.LOW
+
+    gas_price = None
+    last_gas_price = None
+    history_gas_prices = deque(maxlen=7)
+
     while True:
+        # get data
         try:
             results = fetch_latest_gas_price([TxListRequest(address=address, offset=offset) for address in MONITOR_ADDRESSES])
         except Exception as e:
             LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
-            results = [(None, None, None, 0.0)] * len(MONITOR_ADDRESSES)
-        valid_prices = []
-        for address, (low_mean, mid_mean, high_mean, change_rate) in zip(MONITOR_ADDRESSES, results):
-            factor = min_factor + (max_factor - min_factor) * change_rate
-            factor = max(factor, 1.0)
-            LogPrint.info(
-                f"{address} low_mean={low_mean} mid_mean={mid_mean} high_mean={high_mean} change_rate={change_rate:.3f} factor={factor:.3f}"
-            )
-            if mid_mean is not None:
-                dynamic_price = int(high_mean * factor)
-                if dynamic_price > max_gas:
-                    update_toml_price(toml_path, low_mean if low_mean else min_gas)
-                    LogPrint.info(f"Cooldown: price {dynamic_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
-                else:
-                    update_toml_price(toml_path, dynamic_price)
-                    LogPrint.info(f"Set price: {dynamic_price} (factor={factor:.3f}, max_gas={max_gas})")
-                valid_prices.append(dynamic_price)
+            results = None
+        if not results:
+            sleep(interval / 2)
+            continue
+
+        # extract valid prices
+        analyze_data = None
+        for address, tx_list in zip(MONITOR_ADDRESSES, results):
+            analyze_data = analyze_gas_prices(tx_list)
+            area_data[address] = {}
+            samples = 31
+
+            is_low_change_ratio = False
+            is_high_change_ratio = False
+
+            if history_gas_prices:
+                last_analyze_data = history_gas_prices[-1][0]
+                low_change_ratio = abs(analyze_data.low.mean - last_analyze_data.low.mean) / last_analyze_data.low.mean
+                high_change_ratio = abs(analyze_data.high.mean - last_analyze_data.high.mean) / last_analyze_data.high.mean
+                if low_change_ratio > 0.3:
+                    is_low_change_ratio = True
+                if high_change_ratio > 0.3:
+                    is_high_change_ratio = True
             else:
-                LogPrint.error(f"Failed to fetch gas price for {address}")
+                is_low_change_ratio = True
+                is_high_change_ratio = True
+
+            if is_low_change_ratio or not area_data[address].get(GasQuantile.HIGH, None):
+                area_data[address][GasQuantile.HIGH] = anti_normal_gas_iter(
+                    min_gas=analyze_data.high.min,
+                    max_gas=analyze_data.high.max,
+                    n_samples=samples,
+                    edge_width=0.13,
+                    mid_gas=analyze_data.high.mean
+                )
+
+            if is_high_change_ratio or not area_data[address].get(GasQuantile.LOW, None):
+                area_data[address][GasQuantile.LOW] = anti_normal_gas_iter(
+                    min_gas=analyze_data.low.min,
+                    max_gas=analyze_data.low.max,
+                    n_samples=samples,
+                    edge_width=0.13,
+                    mid_gas=analyze_data.low.mean
+                )
+
+        # TODO: calculate gas price
+        is_error_values = analyze_data.latest3['is_error'].values
+        xor_result = is_error_values[0] ^ is_error_values[1] ^ is_error_values[2]
+        if xor_result:
+            use_factor = factor * (factor + 0.38)
+        else:
+            use_factor = factor
+        match mode:
+            case ExecMode.UP:
+                if gas_price is None:
+                    gas_price = analyze_data.low.mean * use_factor
+                else:
+                    gas_price = gas_price * use_factor
+                if last_gas_price and last_gas_price >= max_gas:
+                    mode = ExecMode.RANDOM
+                    continue
+                if toml_path:
+                    update_toml_price(toml_path, gas_price)
+                LogPrint.info(
+                    f"[price: {gas_price / 1e9}] [mode: {mode}]"
+                    f" | low: ({analyze_data.low.min / 1e9:.1f}, {analyze_data.low.mean / 1e9:.1f}, {analyze_data.low.max / 1e9:.1f})"
+                    f" | mid: ({analyze_data.mid.min / 1e9:.1f}, {analyze_data.mid.mean / 1e9:.1f}, {analyze_data.mid.max / 1e9:.1f})"
+                    f" | high: ({analyze_data.high.min / 1e9:.1f}, {analyze_data.high.mean / 1e9:.1f}, {analyze_data.high.max / 1e9:.1f})"
+                )
+                last_gas_price = gas_price
+            case ExecMode.RANDOM:
+                # score in [3~12]
+                score = sum([tuple_to_bitmask(quantile_to_tuple(q)) for q in analyze_data.latest3_tags])
+                LogPrint.info(f"[RANDOM] score: {score} from latest3 tags: {[q.value if q else None for q in analyze_data.latest3_tags]}")
+                match score:
+                    case 3 | 4 | 5:  # low
+                        mine_area = GasQuantile.HIGH
+                    case 6 | 7 | 8 | 9:
+                        mode = ExecMode.UP
+                        gas_price = analyze_data.low.mean
+                        continue
+                    case 10 | 11 | 12:  # high
+                        mine_area = GasQuantile.LOW
+
+                for _, price in area_data[MONITOR_ADDRESSES[0]][mine_area]:
+                    if toml_path:
+                        update_toml_price(toml_path, price)
+                    LogPrint.info(f"[price: {price / 1e9}] [mode: {mode}] [area: {mine_area}] [score: {score}]")
+                    sleep(interval + random.uniform(-interval*0.3, interval*0.3))
+                else:
+                    mode = ExecMode.UP
+                    gas_price = analyze_data.low.mean
+                    area_data[MONITOR_ADDRESSES[0]][mine_area] = None
+                    continue
+
+        history_gas_prices.append((analyze_data, gas_price))
+        # END
+        sleep(interval)
         if not loop:
             break
-        sleep(interval)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-l", "--loop", action="store_true", help="Enable periodic monitoring loop")
     parser.add_argument("-i", "--interval", type=int, default=60, help="Loop interval in seconds")
     parser.add_argument("-t", "--toml-path", type=str, required=True, help="Path to the toml file to update")
-    parser.add_argument("--min-factor", type=float, default=1.05, help="Minimum factor for price adjustment")
-    parser.add_argument("--max-factor", type=float, default=1.20, help="Maximum factor for price adjustment")
+    parser.add_argument("-f", "--factor", type=float, default=1.07, help="Factor for price adjustment")
     parser.add_argument("-x", "--max-gas", type=int, default=int(3e9), help="Maximum allowed gas price")
     parser.add_argument("-o", "--offset", type=int, default=300, help="Number of transactions to fetch (default 300, max 5000)")
     args = parser.parse_args()
@@ -153,8 +312,7 @@ if __name__ == "__main__":
         loop=args.loop,
         interval=args.interval,
         toml_path=args.toml_path,
-        min_factor=args.min_factor,
-        max_factor=args.max_factor,
+        factor=args.factor,
         max_gas=args.max_gas,
         offset=args.offset
     )
