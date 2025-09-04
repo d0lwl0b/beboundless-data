@@ -168,6 +168,8 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
                     use_gas = sampled_price * factor
 
                 if use_gas > max_gas or use_gas < mid_mean:
+                    use_gas = low_mean if low_mean else min_gas
+                    use_gas = use_gas * factor
                     update_toml_price(toml_path, use_gas)
                     LogPrint.info(f"update: {use_gas / 1e9} exceeds max_gas {max_gas / 1e9}, set to low_mean {low_mean / 1e9}")
                 else:
