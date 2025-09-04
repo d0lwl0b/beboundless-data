@@ -122,8 +122,10 @@ def anti_normal_gas_iter(min_gas, max_gas, n_samples, edge_width=0.13, mid_gas=N
     if mid_gas is None:
         mid_gas = (min_gas + max_gas) / 2
     half_range = (max_gas - min_gas) / 2
+    min_gas_price = random.uniform(1e7, 3e7)  # 0.01 Gwei
     for t, s in zip(time_points, transformed_samples):
-        yield t, mid_gas + s * half_range
+        price = mid_gas + s * half_range
+        yield t, max(price, min_gas_price)
 
 def quantile_to_tuple(q):
     return (q == GasQuantile.LOW, q == GasQuantile.MID, q == GasQuantile.HIGH)
@@ -173,15 +175,18 @@ from collections import deque
 from tomlkit import parse, dumps
 
 def update_toml_price(toml_path, price):
+    # Ensure price is non-negative
+    min_gas_price = random.uniform(1e7, 3e7)  # 0.01 Gwei
+    safe_price = max(price, min_gas_price)
     with open(toml_path, "r", encoding="utf-8") as f:
         doc = parse(f.read())
     if "flashblocks" not in doc:
         from tomlkit import table
         doc["flashblocks"] = table()
-    doc["flashblocks"]["initial_max_priority_fee_per_gas_wei"] = int(price)
+    doc["flashblocks"]["initial_max_priority_fee_per_gas_wei"] = int(safe_price)
     with open(toml_path, "w", encoding="utf-8") as f:
         f.write(dumps(doc))
-    LogPrint.info(f">> updated [{int(price) / 1e9}] [{int(price)}] {toml_path} [flashblocks].initial_max_priority_fee_per_gas_wei")
+    LogPrint.info(f">> updated [{int(safe_price) / 1e9}] [{int(safe_price)}] {toml_path} [flashblocks].initial_max_priority_fee_per_gas_wei")
 
 def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9), offset=300):
     mode = ExecMode.UP
