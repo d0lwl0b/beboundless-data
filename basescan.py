@@ -282,7 +282,8 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                         mine_area = GasQuantile.HIGH
                     case 6 | 7 | 8 | 9:
                         mode = ExecMode.UP
-                        gas_price = analyze_data.low.mean
+                        gas_price = analyze_data.low.min
+                        last_gas_price = gas_price
                         continue
                     case 10 | 11 | 12:  # high
                         mine_area = GasQuantile.LOW
@@ -294,7 +295,11 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                     sleep(interval + random.uniform(-interval*0.3, interval*0.3))
                 else:
                     mode = ExecMode.UP
-                    gas_price = analyze_data.low.mean
+                    if mine_area == GasQuantile.HIGH:
+                        gas_price = analyze_data.low.min
+                    if mine_area == GasQuantile.LOW:
+                        gas_price = analyze_data.mid.mean
+                    last_gas_price = gas_price
                     area_data[MONITOR_ADDRESSES[0]][mine_area] = None
                     continue
 
