@@ -161,7 +161,7 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
                 use_gas = None
                 if sampled_price > mid_mean * factor:
                     use_gas = sampled_price
-                elif sampled_price < mid_mean * 0.62:
+                elif sampled_price < mid_mean * 1.618:
                     use_gas = low_mean if low_mean else min_gas
                     use_gas = use_gas * factor
                 else:
