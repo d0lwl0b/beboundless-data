@@ -142,7 +142,7 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
             factor = min_factor + (max_factor - min_factor) * change_rate
             factor = max(factor, 1.0)
             LogPrint.info(
-                f"{address} low_mean={low_mean} mid_mean={mid_mean} high_mean={high_mean} change_rate={change_rate:.3f} factor={factor:.3f}"
+                f"{address} low_mean={low_mean / 1e9} mid_mean={mid_mean / 1e9} high_mean={high_mean / 1e9} change_rate={change_rate:.3f} factor={factor:.3f}"
             )
             if mid_mean is not None:
                 # Use anti-normal sampling between low_mean and high_mean
@@ -156,15 +156,17 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
                     choose_low_prob=0.5,
                 )
                 LogPrint.info(
-                    f"Anti-normal sample: [{min_sample}, {max_sample}], price={sampled_price}"
+                    f"Anti-normal sample: [{min_sample / 1e9}, {max_sample / 1e9}], price={sampled_price / 1e9}"
                 )
                 if sampled_price > max_gas or sampled_price < mid_mean:
                     min_gas = low_mean if low_mean else min_gas
-                    update_toml_price(toml_path, int(min_gas // factor))
-                    LogPrint.info(f"Cooldown: price {sampled_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
+                    update_gas = int(min_gas // factor)
+                    update_toml_price(toml_path, update_gas)
+                    LogPrint.info(f"update: {update_gas / 1e9} exceeds max_gas {max_gas / 1e9}, set to low_mean {low_mean / 1e9}")
                 else:
-                    update_toml_price(toml_path, int(sampled_price * factor))
-                    LogPrint.info(f"Set price: {sampled_price} (anti-normal, max_gas={max_gas})")
+                    update_gas = int(sampled_price * factor)
+                    update_toml_price(toml_path, update_gas)
+                    LogPrint.info(f"update: {update_gas / 1e9} (anti-normal, max_gas={max_gas / 1e9})")
                 valid_prices.append(sampled_price)
             else:
                 LogPrint.error(f"Failed to fetch gas price for {address}")
