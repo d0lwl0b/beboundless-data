@@ -7,12 +7,6 @@ import random
 from time import sleep
 from pathlib import Path
 
-ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY") or os.getenv("BASESCAN_API_KEY")
-
-MONITOR_ADDRESSES = [
-    "0x58db69748e3597e7e1ec55478a6edb92374169f0",
-]
-
 class LogPrint():
     @staticmethod
     def info(msg):
@@ -24,27 +18,27 @@ class LogPrint():
     def error(msg):
         print(f"[ERROR]::{msg}")
 
-# Database
-from sqlmodel import SQLModel, Field, Session, create_engine, select
-
-DB_NAME = "address_gas_monitor.db"
-
-class AddressGas(SQLModel, table=True):
-    address: str = Field(primary_key=True)
-    gas_price: float
-
-engine = create_engine(f"sqlite:///{DB_NAME}")
-
-if not Path(DB_NAME).exists():
-    SQLModel.metadata.create_all(engine)
-
 # Request
+from dataclasses import dataclass, field
+
 from statistics import mean
 from scipy.stats import trim_mean, median_abs_deviation, iqr
 from botasaurus.request import request, Request, NotFoundException
 
+
+@dataclass
+class TxListRequest:
+   address: str
+   offset: int = 300
+
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY") or os.getenv("BASESCAN_API_KEY")
+
+MONITOR_ADDRESSES = [
+    "0x58db69748e3597e7e1ec55478a6edb92374169f0"
+]
+
 @request(cache=False, max_retry=10, retry_wait=1, raise_exception=True, create_error_logs=True)
-def fetch_latest_gas_price(request: Request, address: str, offset: int = 300) -> tuple[int | None, int | None, int | None, float]:
+def fetch_latest_gas_price(request: Request, params: TxListRequest) -> tuple[int | None, int | None, int | None, float]:
     """
     Returns (low_mean, mid_mean, high_mean, change_rate)
     - low_mean: mean of lowest 10%
@@ -54,13 +48,13 @@ def fetch_latest_gas_price(request: Request, address: str, offset: int = 300) ->
     - offset: number of transactions to fetch (default 300, max 5000)
     """
     sleep(random.uniform(0.1, 0.3))  # To avoid rate limiting
-    offset = min(max(100, offset), 5000)
+    offset = min(max(100, params.offset), 5000)
     url = (
         "https://api.etherscan.io/v2/api"
         f"?chainid=8453"
         f"&module=account"
         f"&action=txlist"
-        f"&address={address}"
+        f"&address={params.address}"
         f"&page=1"
         f"&offset={offset}"
         f"&sort=desc"
@@ -68,7 +62,7 @@ def fetch_latest_gas_price(request: Request, address: str, offset: int = 300) ->
     )
     response = request.get(url)
     if response.status_code == 404:
-        raise NotFoundException(address)
+        raise NotFoundException(params.address)
     response.raise_for_status()
     data = response.json()
     if data.get("status") == "1" and data.get("result"):
@@ -94,19 +88,8 @@ def fetch_latest_gas_price(request: Request, address: str, offset: int = 300) ->
         return low_mean, mid_mean, high_mean, change_rate
     return None, None, None, 0.0
 
-def upsert_address_gas(session: Session, address: str, gas_price: float):
-    obj = session.get(AddressGas, address)
-    if obj:
-        obj.gas_price = gas_price
-        session.add(obj)
-    else:
-        obj = AddressGas(address=address, gas_price=gas_price)
-        session.add(obj)
-    session.commit()
-
 
 # Main
-import math
 from tomlkit import parse, dumps
 import argparse
 
@@ -129,30 +112,29 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
     """
     min_gas = int(1e9)  # Minimum gas price during cooldown
     while True:
-        with Session(engine) as session:
-            try:
-                results = fetch_latest_gas_price(MONITOR_ADDRESSES, offset=offset)
-            except Exception as e:
-                LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
-                results = [(None, None, None, 0.0)] * len(MONITOR_ADDRESSES)
-            valid_prices = []
-            for address, (low_mean, mid_mean, high_mean, change_rate) in zip(MONITOR_ADDRESSES, results):
-                factor = min_factor + (max_factor - min_factor) * change_rate
-                factor = max(factor, 1.0)
-                LogPrint.info(
-                    f"{address} low_mean={low_mean} mid_mean={mid_mean} high_mean={high_mean} change_rate={change_rate:.3f} factor={factor:.3f}"
-                )
-                if mid_mean is not None:
-                    dynamic_price = int(mid_mean * factor)
-                    if dynamic_price > max_gas:
-                        update_toml_price(toml_path, low_mean if low_mean else min_gas)
-                        LogPrint.info(f"Cooldown: price {dynamic_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
-                    else:
-                        update_toml_price(toml_path, dynamic_price)
-                        LogPrint.info(f"Set price: {dynamic_price} (factor={factor:.3f}, max_gas={max_gas})")
-                    valid_prices.append(dynamic_price)
+        try:
+            results = fetch_latest_gas_price([TxListRequest(address=address, offset=offset) for address in MONITOR_ADDRESSES])
+        except Exception as e:
+            LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
+            results = [(None, None, None, 0.0)] * len(MONITOR_ADDRESSES)
+        valid_prices = []
+        for address, (low_mean, mid_mean, high_mean, change_rate) in zip(MONITOR_ADDRESSES, results):
+            factor = min_factor + (max_factor - min_factor) * change_rate
+            factor = max(factor, 1.0)
+            LogPrint.info(
+                f"{address} low_mean={low_mean} mid_mean={mid_mean} high_mean={high_mean} change_rate={change_rate:.3f} factor={factor:.3f}"
+            )
+            if mid_mean is not None:
+                dynamic_price = int(mid_mean * factor)
+                if dynamic_price > max_gas:
+                    update_toml_price(toml_path, low_mean if low_mean else min_gas)
+                    LogPrint.info(f"Cooldown: price {dynamic_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
                 else:
-                    LogPrint.error(f"Failed to fetch gas price for {address}")
+                    update_toml_price(toml_path, dynamic_price)
+                    LogPrint.info(f"Set price: {dynamic_price} (factor={factor:.3f}, max_gas={max_gas})")
+                valid_prices.append(dynamic_price)
+            else:
+                LogPrint.error(f"Failed to fetch gas price for {address}")
         if not loop:
             break
         sleep(interval)
