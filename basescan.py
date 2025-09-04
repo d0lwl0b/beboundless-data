@@ -91,8 +91,8 @@ import numpy as np  # For anti-normal sampling
 def anti_normal_sample(
     min_gas: int,
     max_gas: int,
-    edge_width_frac: float = 0.22,
-    sigma_frac: float = 0.05,
+    edge_width_frac: float = 0.13,
+    sigma_frac: float = 0.04,
     choose_low_prob: float = 0.5,
     max_tries: int = 32,
 ) -> int:
