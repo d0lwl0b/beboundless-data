@@ -125,7 +125,7 @@ def main(loop=False, interval=60, toml_path=None, min_factor=1.05, max_factor=1.
                 f"{address} low_mean={low_mean} mid_mean={mid_mean} high_mean={high_mean} change_rate={change_rate:.3f} factor={factor:.3f}"
             )
             if mid_mean is not None:
-                dynamic_price = int(mid_mean * factor)
+                dynamic_price = int(high_mean * factor)
                 if dynamic_price > max_gas:
                     update_toml_price(toml_path, low_mean if low_mean else min_gas)
                     LogPrint.info(f"Cooldown: price {dynamic_price} exceeds max_gas {max_gas}, set to low_mean {low_mean}")
