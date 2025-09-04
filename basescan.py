@@ -213,7 +213,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
         for address, tx_list in zip(MONITOR_ADDRESSES, results):
             analyze_data = analyze_gas_prices(tx_list)
             area_data[address] = {}
-            samples = 31
+            samples = 7
 
             is_low_change_ratio = False
             is_high_change_ratio = False
@@ -235,8 +235,8 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                     min_gas=analyze_data.high.min,
                     max_gas=analyze_data.high.max,
                     n_samples=samples,
-                    edge_width=0.13,
-                    mid_gas=analyze_data.high.mean
+                    edge_width=0.38,
+                    mid_gas=analyze_data.high.max
                 )
 
             if is_high_change_ratio or not area_data[address].get(GasQuantile.LOW, None):
@@ -244,8 +244,8 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                     min_gas=analyze_data.low.min,
                     max_gas=analyze_data.low.max,
                     n_samples=samples,
-                    edge_width=0.13,
-                    mid_gas=analyze_data.low.mean
+                    edge_width=0.38,
+                    mid_gas=analyze_data.low.max
                 )
 
         # TODO: calculate gas price
