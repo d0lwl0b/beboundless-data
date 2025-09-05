@@ -18,3 +18,4 @@ logs/
 test.toml
 basescan.supervisord.conf
 gas_noise.supervisord.conf
+supervisord.conf
