@@ -278,21 +278,21 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                 score = sum([tuple_to_bitmask(quantile_to_tuple(q)) for q in analyze_data.latest3_tags])
                 LogPrint.info(f"[RANDOM] score: {score} from latest3 tags: {[q.value if q else None for q in analyze_data.latest3_tags]}")
                 match score:
-                    case 3 | 4 | 5 | 6:  # low
+                    case 3 | 4 | 5:  # low
                         mine_area = GasQuantile.HIGH
-                    case 7 | 8:
+                    case 6 | 7 | 8 | 9:  # mid
                         mode = ExecMode.UP
                         gas_price = analyze_data.low.min
                         last_gas_price = gas_price
                         continue
-                    case 9 | 10 | 11 | 12:  # high
+                    case 10 | 11 | 12:  # high
                         mine_area = GasQuantile.LOW
 
                 for _, price in area_data[MONITOR_ADDRESSES[0]][mine_area]:
                     if toml_path:
                         update_toml_price(toml_path, price)
                     LogPrint.info(f"[price: {price / 1e9}] [mode: {mode}] [area: {mine_area}] [score: {score}]")
-                    sleep(interval + random.uniform(-interval*0.3, interval*0.3))
+                    sleep(interval + random.uniform(-interval*0.2, interval*0.1))
                 else:
                     mode = ExecMode.UP
                     if mine_area == GasQuantile.HIGH:
