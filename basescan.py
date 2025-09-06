@@ -172,7 +172,7 @@ def analyze_gas_prices(data):
 # Main
 import argparse
 from collections import deque
-from tomlkit import parse, dumps
+from tomlkit import parse, dumps, table
 
 def update_toml_price(toml_path, price):
     # Ensure price is non-negative
@@ -181,7 +181,6 @@ def update_toml_price(toml_path, price):
     with open(toml_path, "r", encoding="utf-8") as f:
         doc = parse(f.read())
     if "flashblocks" not in doc:
-        from tomlkit import table
         doc["flashblocks"] = table()
     doc["flashblocks"]["initial_max_priority_fee_per_gas_wei"] = int(safe_price)
     with open(toml_path, "w", encoding="utf-8") as f:
@@ -251,8 +250,9 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
         # TODO: calculate gas price
         is_error_values = analyze_data.latest3['is_error'].values
         xor_result = is_error_values[0] ^ is_error_values[1] ^ is_error_values[2]
+        score = sum([tuple_to_bitmask(quantile_to_tuple(q)) for q in analyze_data.latest3_tags])
         if xor_result:
-            use_factor = factor * (factor + 0.38)
+            use_factor = factor * (factor + 1 / score)
         else:
             use_factor = factor
         match mode:
@@ -276,7 +276,6 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                 last_gas_price = gas_price
             case ExecMode.RANDOM:
                 # score in [3~12]
-                score = sum([tuple_to_bitmask(quantile_to_tuple(q)) for q in analyze_data.latest3_tags])
                 LogPrint.info(f"[RANDOM] score: {score} from latest3 tags: {[q.value if q else None for q in analyze_data.latest3_tags]}")
                 match score:
                     case 3 | 4 | 5 | 6:  # low
@@ -290,10 +289,15 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                         mine_area = GasQuantile.LOW
 
                 for _, price in area_data[MONITOR_ADDRESSES[0]][mine_area]:
+                    base_factor = factor + 1 / score
+                    if price >= max_gas * factor:
+                        pay_price = price * (1 / base_factor)
+                    else:
+                        pay_price = price * base_factor
                     if toml_path:
-                        update_toml_price(toml_path, price)
+                        update_toml_price(toml_path, pay_price)
                     LogPrint.info(
-                        f"[price: {price / 1e9}] [mode: {mode}] [area: {mine_area}] [score: {score}]")
+                        f"[price: {pay_price / 1e9}] [xor: {xor_result}] [mode: {mode}] [area: {mine_area}] [score: {score}]")
                     sleep(interval + random.uniform(-interval*0.2, interval*0.1))
                 else:
                     mode = ExecMode.UP
