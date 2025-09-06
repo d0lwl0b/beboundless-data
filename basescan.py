@@ -258,32 +258,18 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
             use_factor = factor
 
         error_rate = results[0][1]  # use the first address's error rate for decision
-        dynamic_threshold = max(0.3, min(0.6, error_rate if error_rate is not None else 0.6))
-        low_change_ratio = False
-        high_change_ratio = False
-        if history_gas_prices and history_gas_prices[-1][0] is not None:
-            last_analyze_data = history_gas_prices[-1][0]
-            low_change_ratio = abs(analyze_data.low.mean - last_analyze_data.low.mean) / last_analyze_data.low.mean
-            high_change_ratio = abs(analyze_data.high.mean - last_analyze_data.high.mean) / last_analyze_data.high.mean
-        else:
-            last_analyze_data = None
-            low_change_ratio = False
-            high_change_ratio = False
-        if error_rate is not None and error_rate < dynamic_threshold:
+        num_error_rate = min(int(error_rate * 100 // 10) + 1, 9)
+
+        if error_rate is not None and num_error_rate % 3 != 0:
             mode = ExecMode.CHASE
-        elif last_gas_price is not None and last_gas_price >= max_gas or score >= 9:
-            mode = ExecMode.RANDOM
-        else:
-            mode = ExecMode.UP
 
         match mode:
             case ExecMode.CHASE:
                 chase_factor = factor + 1 / score if xor_result else factor
-                gas_price = analyze_data.mid.mean * chase_factor
-                gas_price = gas_price + (last_gas_price if last_gas_price is not None else 0)
-                gas_price = min(gas_price, max_gas * factor)
+                gas_price = analyze_data.mid.mean * chase_factor * chase_factor
+                gas_price = gas_price + (last_gas_price if last_gas_price is not None else 0) * random.uniform(0.68, 0.96)
                 if gas_price >= max_gas * factor:
-                    gas_price = analyze_data.low.max * use_factor
+                    gas_price = analyze_data.low.max * (1 / use_factor)
                 if toml_path:
                     update_toml_price(toml_path, gas_price)
                 LogPrint.info(
