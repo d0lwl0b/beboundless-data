@@ -176,7 +176,7 @@ from tomlkit import parse, dumps, table
 
 def update_toml_price(toml_path, price):
     # Ensure price is non-negative
-    min_gas_price = random.uniform(1e7, 3e7)  # 0.01 Gwei
+    min_gas_price = random.uniform(1e8, 3e8)  # 0.1 Gwei
     safe_price = max(price, min_gas_price)
     with open(toml_path, "r", encoding="utf-8") as f:
         doc = parse(f.read())
