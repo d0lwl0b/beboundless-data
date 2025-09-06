@@ -122,7 +122,7 @@ def anti_normal_gas_iter(min_gas, max_gas, n_samples, edge_width=0.13, mid_gas=N
     if mid_gas is None:
         mid_gas = (min_gas + max_gas) / 2
     half_range = (max_gas - min_gas) / 2
-    min_gas_price = random.uniform(1e7, 3e7)  # 0.01 Gwei
+    min_gas_price = random.uniform(1e8, 3e8)  # 0.s1 Gwei
     for t, s in zip(time_points, transformed_samples):
         price = mid_gas + s * half_range
         yield t, max(price, min_gas_price)
