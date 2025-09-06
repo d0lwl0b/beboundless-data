@@ -282,7 +282,8 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                 gas_price = analyze_data.mid.mean * chase_factor
                 gas_price = gas_price + (last_gas_price if last_gas_price is not None else 0)
                 gas_price = min(gas_price, max_gas * factor)
-
+                if gas_price >= max_gas * factor:
+                    gas_price = analyze_data.low.max * use_factor
                 if toml_path:
                     update_toml_price(toml_path, gas_price)
                 LogPrint.info(
