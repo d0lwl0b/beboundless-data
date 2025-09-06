@@ -82,8 +82,8 @@ def fetch_latest_gas_price(request: Request, params: TxListRequest) -> tuple[int
 
         LogPrint.info(f"[{address}] [tx: {result_length / offset :.2%}] [error: {error_rate:.2%}] ({error_count} | {result_length} | {offset})")
 
-        return result
-    return result
+        return result, error_rate
+    return result, None
 
 
 # Analysis
@@ -97,6 +97,7 @@ class GasQuantile(Enum):
 
 class ExecMode(Enum):
     UP = 'up'
+    CHASE = 'chase'
     RANDOM = 'random'
 
 @dataclass
@@ -199,13 +200,33 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
     while True:
         # get data
         try:
-            results = fetch_latest_gas_price([TxListRequest(address=address, offset=offset) for address in MONITOR_ADDRESSES])
+            fetch_results = fetch_latest_gas_price([TxListRequest(address=address, offset=offset) for address in MONITOR_ADDRESSES])
+            results, error_rate = fetch_results
         except Exception as e:
             LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
-            results = None
+            results, error_rate = None, None
         if not results:
             sleep(interval / 2)
             continue
+
+        dynamic_threshold = max(0.3, min(0.6, error_rate if error_rate is not None else 0.6))
+        low_change_ratio = False
+        high_change_ratio = False
+        if history_gas_prices and history_gas_prices[-1][0] is not None:
+            last_analyze_data = history_gas_prices[-1][0]
+            low_change_ratio = abs(analyze_data.low.mean - last_analyze_data.low.mean) / last_analyze_data.low.mean
+            high_change_ratio = abs(analyze_data.high.mean - last_analyze_data.high.mean) / last_analyze_data.high.mean
+        else:
+            last_analyze_data = None
+            low_change_ratio = False
+            high_change_ratio = False
+        score = sum([tuple_to_bitmask(quantile_to_tuple(q)) for q in analyze_data.latest3_tags])
+        if error_rate is not None and error_rate < dynamic_threshold and low_change_ratio > 0.17:
+            mode = ExecMode.CHASE
+        elif last_gas_price is not None and last_gas_price >= max_gas or score >= 9:
+            mode = ExecMode.RANDOM
+        else:
+            mode = ExecMode.UP
 
         # extract valid prices
         analyze_data = None
@@ -217,7 +238,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
             is_low_change_ratio = False
             is_high_change_ratio = False
 
-            if history_gas_prices:
+            if history_gas_prices and history_gas_prices[-1][0] is not None:
                 last_analyze_data = history_gas_prices[-1][0]
                 low_change_ratio = abs(analyze_data.low.mean - last_analyze_data.low.mean) / last_analyze_data.low.mean
                 high_change_ratio = abs(analyze_data.high.mean - last_analyze_data.high.mean) / last_analyze_data.high.mean
@@ -256,6 +277,18 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
         else:
             use_factor = factor
         match mode:
+            case ExecMode.CHASE:
+                chase_factor = factor + 1 / score if xor_result else factor
+                gas_price = analyze_data.mid.mean * chase_factor
+                if toml_path:
+                    update_toml_price(toml_path, gas_price)
+                LogPrint.info(
+                    f"[CHASE] [price: {gas_price / 1e9}] [error_rate: {error_rate:.2%}] [mode: {mode}]"
+                    f" | mid: ({analyze_data.mid.min / 1e9:.1f}, {analyze_data.mid.mean / 1e9:.1f}, {analyze_data.mid.max / 1e9:.1f})"
+                    f"\n>>> xor: {xor_result}"
+                )
+                last_gas_price = gas_price
+                mode = ExecMode.UP
             case ExecMode.UP:
                 if gas_price is None:
                     gas_price = analyze_data.low.mean * use_factor
