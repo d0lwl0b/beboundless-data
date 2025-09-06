@@ -260,7 +260,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
         error_rate = results[0][1]  # use the first address's error rate for decision
         num_error_rate = min(int(error_rate * 100 // 10) + 1, 9)
 
-        if error_rate is not None and num_error_rate % 3 != 0:
+        if error_rate is not None and num_error_rate % 3 == 0:
             mode = ExecMode.CHASE
 
         match mode:
