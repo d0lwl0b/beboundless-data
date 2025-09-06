@@ -208,26 +208,6 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
             sleep(interval / 2)
             continue
 
-        error_rate = results[0][1]  # use the first address's error rate for decision
-        dynamic_threshold = max(0.3, min(0.6, error_rate if error_rate is not None else 0.6))
-        low_change_ratio = False
-        high_change_ratio = False
-        if history_gas_prices and history_gas_prices[-1][0] is not None:
-            last_analyze_data = history_gas_prices[-1][0]
-            low_change_ratio = abs(analyze_data.low.mean - last_analyze_data.low.mean) / last_analyze_data.low.mean
-            high_change_ratio = abs(analyze_data.high.mean - last_analyze_data.high.mean) / last_analyze_data.high.mean
-        else:
-            last_analyze_data = None
-            low_change_ratio = False
-            high_change_ratio = False
-        score = sum([tuple_to_bitmask(quantile_to_tuple(q)) for q in analyze_data.latest3_tags])
-        if error_rate is not None and error_rate < dynamic_threshold and low_change_ratio > 0.17:
-            mode = ExecMode.CHASE
-        elif last_gas_price is not None and last_gas_price >= max_gas or score >= 9:
-            mode = ExecMode.RANDOM
-        else:
-            mode = ExecMode.UP
-
         # extract valid prices
         analyze_data = None
         for address, (tx_list, error_rate) in zip(MONITOR_ADDRESSES, results):
@@ -276,6 +256,26 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
             use_factor = factor * (factor + 1 / score)
         else:
             use_factor = factor
+
+        error_rate = results[0][1]  # use the first address's error rate for decision
+        dynamic_threshold = max(0.3, min(0.6, error_rate if error_rate is not None else 0.6))
+        low_change_ratio = False
+        high_change_ratio = False
+        if history_gas_prices and history_gas_prices[-1][0] is not None:
+            last_analyze_data = history_gas_prices[-1][0]
+            low_change_ratio = abs(analyze_data.low.mean - last_analyze_data.low.mean) / last_analyze_data.low.mean
+            high_change_ratio = abs(analyze_data.high.mean - last_analyze_data.high.mean) / last_analyze_data.high.mean
+        else:
+            last_analyze_data = None
+            low_change_ratio = False
+            high_change_ratio = False
+        if error_rate is not None and error_rate < dynamic_threshold:
+            mode = ExecMode.CHASE
+        elif last_gas_price is not None and last_gas_price >= max_gas or score >= 9:
+            mode = ExecMode.RANDOM
+        else:
+            mode = ExecMode.UP
+
         match mode:
             case ExecMode.CHASE:
                 chase_factor = factor + 1 / score if xor_result else factor
