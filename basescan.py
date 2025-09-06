@@ -200,15 +200,15 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
     while True:
         # get data
         try:
-            fetch_results = fetch_latest_gas_price([TxListRequest(address=address, offset=offset) for address in MONITOR_ADDRESSES])
-            results, error_rate = fetch_results
+            results = fetch_latest_gas_price([TxListRequest(address=address, offset=offset) for address in MONITOR_ADDRESSES])
         except Exception as e:
             LogPrint.error(f"Exception for {MONITOR_ADDRESSES}: {e}")
-            results, error_rate = None, None
+            results = None
         if not results:
             sleep(interval / 2)
             continue
 
+        error_rate = results[0][1]  # use the first address's error rate for decision
         dynamic_threshold = max(0.3, min(0.6, error_rate if error_rate is not None else 0.6))
         low_change_ratio = False
         high_change_ratio = False
@@ -230,7 +230,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
 
         # extract valid prices
         analyze_data = None
-        for address, tx_list in zip(MONITOR_ADDRESSES, results):
+        for address, (tx_list, error_rate) in zip(MONITOR_ADDRESSES, results):
             analyze_data = analyze_gas_prices(tx_list)
             area_data[address] = {}
             samples = 9
