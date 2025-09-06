@@ -213,7 +213,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
         for address, tx_list in zip(MONITOR_ADDRESSES, results):
             analyze_data = analyze_gas_prices(tx_list)
             area_data[address] = {}
-            samples = 7
+            samples = 9
 
             is_low_change_ratio = False
             is_high_change_ratio = False
@@ -222,9 +222,9 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                 last_analyze_data = history_gas_prices[-1][0]
                 low_change_ratio = abs(analyze_data.low.mean - last_analyze_data.low.mean) / last_analyze_data.low.mean
                 high_change_ratio = abs(analyze_data.high.mean - last_analyze_data.high.mean) / last_analyze_data.high.mean
-                if low_change_ratio > 0.3:
+                if low_change_ratio > 0.17:
                     is_low_change_ratio = True
-                if high_change_ratio > 0.3:
+                if high_change_ratio > 0.17:
                     is_high_change_ratio = True
             else:
                 is_low_change_ratio = True
@@ -235,8 +235,8 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                     min_gas=analyze_data.high.min,
                     max_gas=analyze_data.high.max,
                     n_samples=samples,
-                    edge_width=0.38,
-                    mid_gas=analyze_data.high.max
+                    edge_width=0.23,
+                    mid_gas=analyze_data.high.mean * factor
                 )
 
             if is_high_change_ratio or not area_data[address].get(GasQuantile.LOW, None):
@@ -244,8 +244,8 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                     min_gas=analyze_data.low.min,
                     max_gas=analyze_data.low.max,
                     n_samples=samples,
-                    edge_width=0.38,
-                    mid_gas=analyze_data.low.max
+                    edge_width=0.23,
+                    mid_gas=analyze_data.low.mean * factor
                 )
 
         # TODO: calculate gas price
@@ -271,6 +271,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                     f" | low: ({analyze_data.low.min / 1e9:.1f}, {analyze_data.low.mean / 1e9:.1f}, {analyze_data.low.max / 1e9:.1f})"
                     f" | mid: ({analyze_data.mid.min / 1e9:.1f}, {analyze_data.mid.mean / 1e9:.1f}, {analyze_data.mid.max / 1e9:.1f})"
                     f" | high: ({analyze_data.high.min / 1e9:.1f}, {analyze_data.high.mean / 1e9:.1f}, {analyze_data.high.max / 1e9:.1f})"
+                    f"\n>>> xor: {xor_result}"
                 )
                 last_gas_price = gas_price
             case ExecMode.RANDOM:
@@ -278,20 +279,21 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                 score = sum([tuple_to_bitmask(quantile_to_tuple(q)) for q in analyze_data.latest3_tags])
                 LogPrint.info(f"[RANDOM] score: {score} from latest3 tags: {[q.value if q else None for q in analyze_data.latest3_tags]}")
                 match score:
-                    case 3 | 4 | 5:  # low
+                    case 3 | 4 | 5 | 6:  # low
                         mine_area = GasQuantile.HIGH
-                    case 6 | 7 | 8 | 9:  # mid
+                    case 7 | 8:  # mid
                         mode = ExecMode.UP
                         gas_price = analyze_data.low.min
                         last_gas_price = gas_price
                         continue
-                    case 10 | 11 | 12:  # high
+                    case 9 | 10 | 11 | 12:  # high
                         mine_area = GasQuantile.LOW
 
                 for _, price in area_data[MONITOR_ADDRESSES[0]][mine_area]:
                     if toml_path:
                         update_toml_price(toml_path, price)
-                    LogPrint.info(f"[price: {price / 1e9}] [mode: {mode}] [area: {mine_area}] [score: {score}]")
+                    LogPrint.info(
+                        f"[price: {price / 1e9}] [mode: {mode}] [area: {mine_area}] [score: {score}]")
                     sleep(interval + random.uniform(-interval*0.2, interval*0.1))
                 else:
                     mode = ExecMode.UP
