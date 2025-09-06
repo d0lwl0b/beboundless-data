@@ -39,7 +39,7 @@ MONITOR_ADDRESSES = [
 ]
 
 @request(cache=False, max_retry=10, retry_wait=1, raise_exception=True, create_error_logs=True)
-def fetch_latest_gas_price(request: Request, params: TxListRequest) -> tuple[int | None, int | None, int | None, float]:
+def fetch_latest_gas_price(request: Request, params: TxListRequest):
     sleep(random.uniform(0.1, 0.3))  # To avoid rate limiting
     address = params.address
     offset = min(max(10, params.offset), 5000)
@@ -83,7 +83,7 @@ def fetch_latest_gas_price(request: Request, params: TxListRequest) -> tuple[int
         LogPrint.info(f"[{address}] [tx: {result_length / offset :.2%}] [error: {error_rate:.2%}] ({error_count} | {result_length} | {offset})")
 
         return result, error_rate
-    return result, None
+    return [], None
 
 
 # Analysis
