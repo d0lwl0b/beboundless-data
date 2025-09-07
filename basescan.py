@@ -1,4 +1,5 @@
 # basescan.py
+import time
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -196,6 +197,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
     gas_price = None
     last_gas_price = None
     history_gas_prices = deque(maxlen=7)
+    chase_time = 0
 
     while True:
         # get data
@@ -258,10 +260,10 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
             use_factor = factor
 
         error_rate = results[0][1]  # use the first address's error rate for decision
-        num_error_rate = min(int(error_rate * 100 % 10) + 1, 9)
+        num_error_rate = min(int((error_rate * 100 + random.randint(1, 3)) % 10), 9)
 
         if mode != ExecMode.RANDOM:
-            if error_rate is not None and num_error_rate % 3 == 0:
+            if error_rate is not None and num_error_rate % 5 < 2:
                 mode = ExecMode.CHASE
             else:
                 mode = ExecMode.UP
