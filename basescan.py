@@ -276,7 +276,7 @@ def main(loop=False, interval=60, toml_path=None, factor=1.07, max_gas=int(3e9),
                 if toml_path:
                     update_toml_price(toml_path, gas_price)
                 LogPrint.info(
-                    f"[CHASE] [price: {gas_price / 1e9}] [error_rate: {error_rate:.2%}] [mode: {mode}]"
+                    f"[CHASE] [price: {gas_price / 1e9}] [error_rate: {error_rate:.2%}] [mode: {mode}] [num: {num_error_rate}]"
                     f" | mid: ({analyze_data.mid.min / 1e9:.1f}, {analyze_data.mid.mean / 1e9:.1f}, {analyze_data.mid.max / 1e9:.1f})"
                     f"\n>>> xor: {xor_result}"
                 )
