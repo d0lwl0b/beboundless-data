@@ -64,19 +64,20 @@ def strategy_loop(
     rng = np.random.default_rng()
     # Natural constant e and ratio bounds (low/high)
     e = 2.718281828459045
-    ratio_min = e * 0.97  # e - 3%
-    ratio_max = e * 1.03  # e + 3%
+    ratio_min = e * 0.70  # e - 30%
+    ratio_max = e * 0.77  # e - 23%
     # Window time parameters (normal distribution, 2σ range)
-    high_period_mean = 3.5  # High price mean (seconds)
+    high_period_mean = 4.5  # High price mean (seconds)
     high_period_sigma = 0.25  # Standard deviation for high period
-    low_period_sigma = 0.5  # Standard deviation for low period
+    low_period_sigma = 0.3  # Standard deviation for low period
     # Sliding window and trigger control
-    trigger_history = deque(maxlen=20)  # Track last 20 cycles (~260s), stores (PriceState, price)
-    target_trigger_prob = 0.2  # Target 20% high price probability
-    trigger_threshold_low = 0.15  # Force trigger if below 15%
-    trigger_threshold_high = 0.25  # Skip trigger if above 25%
+    maxlen = 50
+    trigger_history = deque(maxlen=maxlen)  # Track last 50 cycles (~650s), stores (PriceState, price)
+    target_trigger_prob = 0.3  # Target 30% high price probability
+    trigger_threshold_low = 0.27  # Force trigger if below 27%
+    trigger_threshold_high = 0.33  # Skip trigger if above 33%
     no_trigger_count = 0  # Track consecutive non-triggers
-    max_no_trigger = 4  # Force trigger after 4 non-triggers
+    max_no_trigger = 3  # Force trigger after 3 non-triggers
     last_price = low_price  # Track last written price
     write_buffer = {"price": low_price}  # Buffer for writes
     last_write_time = time.time()  # Track last write time
@@ -84,7 +85,7 @@ def strategy_loop(
     while True:
         # Generate high period (normal distribution, 2σ range)
         high_time = rng.normal(high_period_mean, high_period_sigma)
-        high_time = max(3, min(3.6, high_time))  # Cap within 2σ
+        high_time = max(4.2, min(4.7, high_time))  # Cap within 2σ
         # Generate ratio and calculate low period (low/high ≈ e)
         ratio = rng.uniform(ratio_min, ratio_max)  # Ratio in [2.636, 3.153]
         low_period_mean = high_time * ratio  # Dynamic low period mean
@@ -96,11 +97,11 @@ def strategy_loop(
 
         # Determine price and state
         state = PriceState.LOW_PRICE
-        current_price = int(low_price * rng.uniform(0.9, 1.1))  # Low price ±10% fluctuation
+        current_price = int(low_price * (1 + rng.choice([-1, 1]) * rng.uniform(0.2, 0.5)))
         trigger_reason = None
         if trigger_history and trigger_history[-1][0] == PriceState.HIGH_PRICE:
             trigger_reason = "forced_low"
-        elif len(trigger_history) < 20:
+        elif len(trigger_history) < maxlen:
             trigger_reason = "random"
             if rng.random() < target_trigger_prob:
                 state = PriceState.HIGH_PRICE
