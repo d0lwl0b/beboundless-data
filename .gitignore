@@ -15,6 +15,7 @@ output/
 cache/
 logs/
 *.db
+*.db-journal
 test.toml
 basescan.supervisord.conf
 gas_noise.supervisord.conf
