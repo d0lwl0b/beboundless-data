@@ -58,7 +58,8 @@ def strategy_loop(
     multiplier_max: float,
     toml_path: str,
     mode: str,
-    n_machines: int
+    n_machines: int,
+    reverse_time: bool = False
 ):
     rng = np.random.default_rng()
     # Natural constant e and ratio bounds (low/high)
@@ -89,6 +90,9 @@ def strategy_loop(
         low_period_mean = high_time * ratio  # Dynamic low period mean
         low_time = rng.normal(low_period_mean, low_period_sigma)
         low_time = max(low_period_mean - 2 * low_period_sigma, min(low_period_mean + 2 * low_period_sigma, low_time))  # Cap within 2σ
+
+        if reverse_time:
+            high_time, low_time = low_time, high_time
 
         # Determine price and state
         state = PriceState.LOW_PRICE
@@ -152,6 +156,7 @@ def main():
     parser.add_argument("--toml-path", type=str, required=True, help="TOML file path")
     parser.add_argument("--mode", type=str, choices=["flashblocks", "market"], required=True, help="Write mode")
     parser.add_argument("--n-machines", type=int, default=30, help="Number of mining machines")
+    parser.add_argument("--reverse-time", action="store_true", help="Reverse high/low time duration")
     args = parser.parse_args()
     
     strategy_loop(
@@ -161,7 +166,8 @@ def main():
         multiplier_max=args.multiplier_max,
         toml_path=args.toml_path,
         mode=args.mode,
-        n_machines=args.n_machines
+        n_machines=args.n_machines,
+        reverse_time=args.reverse_time
     )
 
 if __name__ == "__main__":
