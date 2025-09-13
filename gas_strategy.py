@@ -66,7 +66,7 @@ def update_price_tomlkit(path, section, key, value):
             doc = parse(f.read())
         if section not in doc:
             doc[section] = {}
-        doc[section][key] = value
+        doc[section][key] = int(value)
         with open(path, "w", encoding="utf-8") as f:
             f.write(dumps(doc))
         return True
