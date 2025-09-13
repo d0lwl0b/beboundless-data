@@ -60,12 +60,17 @@ def analyze_window(session: Session, window_seconds: int):
     score_mean = (sum_score / sum_duration) if sum_duration > 0 else 0.0
     return (avg_price / 1e9, score_mean / 1e9)
 
-def update_price_tomlkit(path, section, key, value):
+def update_price_tomlkit(path, section, value):
     try:
         with open(path, "r", encoding="utf-8") as f:
             doc = parse(f.read())
         if section not in doc:
             doc[section] = {}
+        match section:
+            case "market":
+                key = "lockin_priority_gas"
+            case "flashblocks":
+                key = "initial_max_priority_fee_per_gas_wei"
         doc[section][key] = int(value)
         with open(path, "w", encoding="utf-8") as f:
             f.write(dumps(doc))
@@ -97,7 +102,7 @@ def cycle_strategy_loop(
         is_reverse = not cycle_type if reverse_time else cycle_type
         price = base_price if is_reverse else int(base_price * multiplier)
 
-        success = update_price_tomlkit(toml_path, mode, "price", price)
+        success = update_price_tomlkit(toml_path, mode, price)
         LogPrint.info(
             f"[{'OK' if success else 'NO'}] [{'LONG' if cycle_type else 'SHORT'}]\t[time={period_time:.3f}s]\t[price={price / 1e9 :.3f} gwei]"
         )
